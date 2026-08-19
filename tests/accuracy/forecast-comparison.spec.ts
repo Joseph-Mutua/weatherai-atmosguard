@@ -1,3 +1,5 @@
+import type { TestInfo } from '@playwright/test';
+
 import { thresholds } from '../../config/thresholds.js';
 import {
   ReferenceWeatherClient,
@@ -5,8 +7,23 @@ import {
 } from '../../src/clients/reference-weather.client.js';
 import { expect, test } from '../../src/fixtures/api.fixture.js';
 import { locations } from '../../src/test-data/locations.js';
-import { compareWithReference } from '../../src/validators/accuracy.validator.js';
+import {
+  AccuracyValidationError,
+  compareWithReference,
+  type AccuracyComparison,
+} from '../../src/validators/accuracy.validator.js';
 import { expectSuccessfulWeather } from '../support/weather.assertions.js';
+
+async function attachComparison(
+  testInfo: TestInfo,
+  location: string,
+  comparison: AccuracyComparison,
+): Promise<void> {
+  await testInfo.attach('cross-provider-comparison.json', {
+    body: Buffer.from(JSON.stringify({ location, ...comparison }, null, 2)),
+    contentType: 'application/json',
+  });
+}
 
 test.describe('Independent provider comparison @accuracy', () => {
   for (const location of [locations[0], locations[1], locations[4]]) {
@@ -45,13 +62,17 @@ test.describe('Independent provider comparison @accuracy', () => {
         }),
       );
 
-      const comparison = await test.step('Calculate deviations and apply anomaly tolerances', () =>
-        compareWithReference(weatherAi, reference, thresholds.accuracy));
-
-      await testInfo.attach('cross-provider-comparison.json', {
-        body: Buffer.from(JSON.stringify({ location: location.name, ...comparison }, null, 2)),
-        contentType: 'application/json',
-      });
+      try {
+        const comparison =
+          await test.step('Calculate deviations and apply anomaly tolerances', () =>
+            compareWithReference(weatherAi, reference, thresholds.accuracy));
+        await attachComparison(testInfo, location.name, comparison);
+      } catch (error: unknown) {
+        if (error instanceof AccuracyValidationError) {
+          await attachComparison(testInfo, location.name, error.comparison);
+        }
+        throw error;
+      }
     });
   }
 });

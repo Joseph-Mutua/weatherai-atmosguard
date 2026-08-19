@@ -33,6 +33,8 @@ is `ai=false`, metric units, and low forecast horizons. Coverage includes 1- and
 imperial conversion, the forecast alias, current/daily/hourly handlers, a deterministic
 `weather-geo` coordinate override, usage semantics, and opt-in AI language examples.
 Candidate-defined response budgets are configuration, not provider SLAs.
+They are deliberately conservative regression guards that separate severe degradation from normal
+Internet and shared-runner variance rather than reproducing plan-specific marketing thresholds.
 
 ## Contract test approach
 
@@ -86,14 +88,17 @@ k6 owns performance execution. The automatic smoke uses one VU and one iteration
 request-echo, finite-value, wind, and forecast-array checks plus a one-sample maximum-latency gate.
 Load, stress, and spike retain p95/p99 budgets and require `ALLOW_HIGH_VOLUME=true` in addition to a
 key. Every executed profile emits a profile-specific JSON summary. Manual profiles require API-owner
-approval and sufficient quota. No automatic `429` test intentionally spends monthly quota.
+approval and sufficient quota. The main quality pipeline owns the only automatic k6 request; the
+standalone performance workflow is manual-only to prevent duplicate quota use. No automatic `429`
+test intentionally spends monthly quota.
 
 ## Availability and monitoring approach
 
-A daily cron at 05:17 UTC invokes only `tests/monitoring/uptime.spec.ts`. It makes one Nairobi,
-one-day, non-AI request and checks reachability, minimal response integrity, the monitoring budget,
-and `attempts === 1`. A recovered `500` or `503` therefore remains a monitoring failure instead of
-being hidden by the functional client's retry behavior. This is synthetic evidence, not an SLA.
+A daily cron at 05:17 UTC invokes only `tests/monitoring/uptime.spec.ts`; a path-filtered push trigger
+also validates changes to that workflow or test. It makes one Nairobi, one-day, non-AI request and
+checks reachability, minimal response integrity, the monitoring budget, and `attempts === 1`. A
+recovered `500` or `503` therefore remains a monitoring failure instead of being hidden by the
+functional client's retry behavior. This is synthetic evidence, not an SLA.
 
 ## CI/CD and reporting
 
@@ -102,6 +107,11 @@ lint, strict type checking, unit tests, separate safe suites, exact blob-set ver
 Playwright reporting, evidence-based summary generation, and k6 smoke. With a key, eight blob files
 must exist: unit plus seven live suite reports. Without a secret, CI still merges and uploads unit
 evidence. HTML, JUnit XML, Playwright JSON, quality JSON, and k6 JSON are artifacts.
+
+Playwright retries once in CI for diagnostic evidence, but `failOnFlakyTests` makes every recovered
+retry fail the workflow. The custom summary classifies passed, flaky, failed, and skipped tests,
+counts retry attempts, and includes errors and attachments from every attempt. Report merging is not
+error-suppressed, while downstream evidence publication remains guarded with `always()` conditions.
 
 Main publishes every successfully generated HTML report through GitHub Pages, including reports
 containing failed API assertions. The manual `run_ai_tests` checkbox is the only CI path that enables

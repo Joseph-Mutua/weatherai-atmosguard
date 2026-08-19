@@ -1,6 +1,11 @@
 name: WeatherAI daily uptime monitor
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/uptime-monitor.yml'
+      - 'tests/monitoring/**'
   schedule:
     - cron: '17 5 * * *'
   workflow_dispatch:

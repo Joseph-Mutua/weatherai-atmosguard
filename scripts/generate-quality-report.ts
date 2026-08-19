@@ -1,6 +1,10 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
+import {
+  classifyPlaywrightOutcome,
+  type QualityTestOutcome,
+} from '../src/reporting/playwright-outcome.js';
 import { percentile } from '../src/utils/response-time.js';
 
 interface JsonResult {
@@ -11,6 +15,7 @@ interface JsonResult {
 }
 
 interface JsonTest {
+  readonly status?: string;
   readonly results?: readonly JsonResult[];
 }
 
@@ -33,7 +38,9 @@ interface PlaywrightJsonReport {
 interface ObservedTest {
   readonly title: string;
   readonly file: string;
-  readonly result: JsonResult;
+  readonly outcome: QualityTestOutcome;
+  readonly results: readonly JsonResult[];
+  readonly durationMs: number;
 }
 
 const endpointByFile: Readonly<Record<string, readonly string[]>> = {
@@ -69,9 +76,17 @@ function collectTests(
   const file = suite.file ?? parentFile;
   const ownTests = (suite.specs ?? []).flatMap((spec) =>
     (spec.tests ?? []).flatMap((test) => {
-      const result = test.results?.at(-1);
-      return result
-        ? [{ title: [...titles, spec.title ?? 'unnamed test'].join(' › '), file, result }]
+      const results = test.results ?? [];
+      return results.length > 0
+        ? [
+            {
+              title: [...titles, spec.title ?? 'unnamed test'].join(' › '),
+              file,
+              outcome: classifyPlaywrightOutcome(test),
+              results,
+              durationMs: results.reduce((total, result) => total + (result.duration ?? 0), 0),
+            },
+          ]
         : [];
     }),
   );
@@ -86,13 +101,10 @@ async function main(): Promise<void> {
   const output = resolve(process.env.QUALITY_REPORT_OUTPUT ?? 'quality-report.json');
   const report = JSON.parse(await readFile(input, 'utf8')) as PlaywrightJsonReport;
   const tests = (report.suites ?? []).flatMap((suite) => collectTests(suite));
-  const statuses = tests.map(({ result }) => result.status ?? 'unknown');
-  const durations = tests
-    .map(({ result }) => result.duration)
-    .filter((duration): duration is number => typeof duration === 'number');
+  const durations = tests.map(({ durationMs }) => durationMs);
   const executedFiles = new Set(
     tests
-      .filter(({ result }) => result.status !== 'skipped')
+      .filter(({ outcome }) => outcome !== 'skipped')
       .map(({ file }) => file.replaceAll('\\', '/').split('/').at(-1) ?? ''),
   );
   const endpointsTested = [
@@ -100,17 +112,25 @@ async function main(): Promise<void> {
   ].sort();
   const knownLocations = ['Nairobi', 'London', 'New York', 'Singapore', 'Sydney'];
   const locationsTested = knownLocations.filter((location) =>
-    tests.some(({ title, result }) => result.status === 'passed' && title.includes(location)),
+    tests.some(
+      ({ title, outcome }) =>
+        (outcome === 'passed' || outcome === 'flaky') && title.includes(location),
+    ),
   );
-  const errors = tests.flatMap(({ result }) => result.errors ?? []);
+  const errors = tests.flatMap(({ results }) =>
+    results.flatMap(({ errors: attemptErrors }) => attemptErrors ?? []),
+  );
 
   const summary = {
     generatedAt: new Date().toISOString(),
     source: input,
     totalTests: tests.length,
-    passed: statuses.filter((status) => status === 'passed').length,
-    failed: statuses.filter((status) => status === 'failed' || status === 'timedOut').length,
-    skipped: statuses.filter((status) => status === 'skipped').length,
+    passed: tests.filter(({ outcome }) => outcome === 'passed').length,
+    flaky: tests.filter(({ outcome }) => outcome === 'flaky').length,
+    failed: tests.filter(({ outcome }) => outcome === 'failed').length,
+    skipped: tests.filter(({ outcome }) => outcome === 'skipped').length,
+    unknown: tests.filter(({ outcome }) => outcome === 'unknown').length,
+    retryAttempts: tests.reduce((total, { results }) => total + Math.max(results.length - 1, 0), 0),
     averageTestDurationMs:
       durations.length > 0
         ? Math.round(durations.reduce((sum, duration) => sum + duration, 0) / durations.length)
@@ -125,10 +145,13 @@ async function main(): Promise<void> {
       message?.includes('Weather data-quality validation failed'),
     ).length,
     crossProviderComparisons: tests.reduce(
-      (count, { result }) =>
+      (count, { results }) =>
         count +
-        (result.attachments ?? []).filter(({ name }) => name === 'cross-provider-comparison.json')
-          .length,
+        Number(
+          results.some(({ attachments }) =>
+            attachments?.some(({ name }) => name === 'cross-provider-comparison.json'),
+          ),
+        ),
       0,
     ),
   };

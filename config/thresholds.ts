@@ -8,7 +8,10 @@ function positiveNumber(name: string, fallback: number): number {
   return value;
 }
 
-/** Candidate-defined quality gates. These values are not WeatherAI production SLAs. */
+/**
+ * Conservative candidate-defined regression guards that distinguish severe degradation from
+ * normal Internet and shared-runner variance. They do not reproduce a WeatherAI production SLA.
+ */
 export const thresholds = {
   smokeResponseMs: positiveNumber('SMOKE_RESPONSE_BUDGET_MS', 5_000),
   functionalResponseMs: positiveNumber('FUNCTIONAL_RESPONSE_BUDGET_MS', 8_000),

@@ -149,7 +149,6 @@ jobs:
 
       - name: Merge Playwright reports
         if: always() && steps.blob-verification.outcome == 'success'
-        continue-on-error: true
         run: npx playwright merge-reports --config=playwright.config.ts blob-report
 
       - name: Verify merged HTML report

@@ -1,11 +1,6 @@
 name: WeatherAI k6 performance smoke
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'performance/**'
-      - '.github/workflows/performance-smoke.yml'
   workflow_dispatch:
 
 permissions:

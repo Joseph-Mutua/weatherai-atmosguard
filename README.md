@@ -3,35 +3,37 @@
 [![API quality pipeline](https://github.com/Joseph-Mutua/weatherai-atmosguard/actions/workflows/api-tests.yml/badge.svg)](https://github.com/Joseph-Mutua/weatherai-atmosguard/actions/workflows/api-tests.yml)
 [![Daily uptime monitor](https://github.com/Joseph-Mutua/weatherai-atmosguard/actions/workflows/uptime-monitor.yml/badge.svg)](https://github.com/Joseph-Mutua/weatherai-atmosguard/actions/workflows/uptime-monitor.yml)
 
-[Live Playwright report](https://joseph-mutua.github.io/weatherai-atmosguard/) ·
-[CI runs](https://github.com/Joseph-Mutua/weatherai-atmosguard/actions) ·
-[WeatherAI documentation](https://weather-ai.co/docs) ·
-[Known issues](docs/KNOWN_ISSUES.md)
+- [Live Playwright report](https://joseph-mutua.github.io/weatherai-atmosguard/)
+- [CI runs](https://github.com/Joseph-Mutua/weatherai-atmosguard/actions)
+- [WeatherAI documentation](https://weather-ai.co/docs)
+- [Known issues](docs/KNOWN_ISSUES.md)
 
-## Menu
+## Table of Contents
 
-- [1. Overview](#1-overview)
-- [2. Objectives](#2-objectives)
-- [3. Architecture](#3-architecture)
-- [4. Technology stack](#4-technology-stack)
-- [5. APIs covered](#5-apis-covered)
-- [6. Test strategy](#6-test-strategy)
-- [7. Project structure](#7-project-structure)
-- [8. Prerequisites](#8-prerequisites)
-- [9. Installation](#9-installation)
-- [10. Environment configuration](#10-environment-configuration)
-- [11. Run all tests](#11-run-all-tests)
-- [12. Run individual suites](#12-run-individual-suites)
-- [13. Performance testing](#13-performance-testing)
-- [14. Reports](#14-reports)
-- [15. CI/CD](#15-cicd)
-- [16. GitHub Pages](#16-github-pages)
-- [17. API quota considerations](#17-api-quota-considerations)
-- [18. Engineering decisions](#18-engineering-decisions)
-- [19. Assumptions](#19-assumptions)
-- [20. Observed behavior and documentation discrepancies](#20-observed-behavior-and-documentation-discrepancies)
-- [21. Known limitations](#21-known-limitations)
-- [22. Future improvements](#22-future-improvements)
+- [WeatherAI AtmosGuard](#weatherai-atmosguard)
+  - [Table of Contents](#table-of-contents)
+  - [1. Overview](#1-overview)
+  - [2. Objectives](#2-objectives)
+  - [3. Architecture](#3-architecture)
+  - [4. Technology stack](#4-technology-stack)
+  - [5. APIs covered](#5-apis-covered)
+  - [6. Test strategy](#6-test-strategy)
+  - [7. Project structure](#7-project-structure)
+  - [8. Prerequisites](#8-prerequisites)
+  - [9. Installation](#9-installation)
+  - [10. Environment configuration](#10-environment-configuration)
+  - [11. Run all tests](#11-run-all-tests)
+  - [12. Run individual suites](#12-run-individual-suites)
+  - [13. Performance testing](#13-performance-testing)
+  - [14. Reports](#14-reports)
+  - [15. CI/CD](#15-cicd)
+  - [16. GitHub Pages](#16-github-pages)
+  - [17. API quota considerations](#17-api-quota-considerations)
+  - [18. Engineering decisions](#18-engineering-decisions)
+  - [19. Assumptions](#19-assumptions)
+  - [20. Observed behavior and documentation discrepancies](#20-observed-behavior-and-documentation-discrepancies)
+  - [21. Known limitations](#21-known-limitations)
+  - [22. Future improvements](#22-future-improvements)
 
 Supporting documents: [Test strategy](docs/TEST_STRATEGY.md) ·
 [Automated test cases](docs/TEST_CASES.md) · [Known issues register](docs/KNOWN_ISSUES.md)
@@ -110,6 +112,12 @@ The retry policy is deliberately narrow: at most three attempts with 500 ms and 
 only for HTTP `500` and `503`. It never retries `400`, `401`, `403`, assertions, or domain failures.
 The uptime check additionally requires `attempts === 1`, preventing a recovered server error from
 being reported as uninterrupted availability.
+
+CI treats retries as diagnostic evidence rather than a way to hide instability:
+`failOnFlakyTests` is enabled in CI, and the custom quality summary reports flaky tests and retry
+attempts separately. Response and accuracy thresholds are intentionally conservative regression
+guards designed to distinguish severe degradation from normal Internet and shared-runner variance;
+they do not reproduce WeatherAI's plan-specific SLA claims.
 
 See [TEST_STRATEGY.md](docs/TEST_STRATEGY.md) and [TEST_CASES.md](docs/TEST_CASES.md).
 
@@ -245,8 +253,9 @@ Normal Playwright execution produces:
 
 Open the HTML report with `npm run test:report`. Generate `quality-report.json` from an actual
 Playwright JSON run with `npm run report:summary`. The summary derives pass/fail/skip counts,
-test-duration average and p95, executed endpoints/locations, violation counts, and comparison
-attachment count. It never invents missing measurements.
+flaky count, retry attempts, test-duration average and p95, executed endpoints/locations, violation
+counts, and comparison attachment count. It never invents missing measurements. Accuracy
+comparison evidence is attached on both passing runs and tolerance failures.
 
 ## 15. CI/CD
 
@@ -256,9 +265,17 @@ smoke. With a configured key, CI requires exactly eight blob reports—unit plus
 before merging. Without a key, it still merges and publishes unit-test evidence. HTML,
 machine-readable results, and k6 JSON are downloadable artifacts.
 
+The main quality pipeline is the sole automatic owner of the one-request k6 smoke. The separate
+performance workflow is manual-only, preventing a performance-file push from consuming the same
+request twice. A failed report merge remains a CI failure; evidence steps still use `always()` where
+appropriate.
+
 Fork pull requests do not receive secrets. They still run static quality gates and unit tests while
 safely skipping live API calls. AI checks remain opt-in through the `run_ai_tests` manual-dispatch
 checkbox.
+
+The uptime workflow runs once daily and also validates pushes that change its workflow or monitoring
+test. This gives the uptime badge an initial result without spending quota on every repository push.
 
 ## 16. GitHub Pages
 
