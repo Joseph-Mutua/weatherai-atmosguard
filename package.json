@@ -1,0 +1,42 @@
+{
+  "name": "weatherai-atmosguard",
+  "version": "1.0.0",
+  "private": true,
+  "description": "API quality engineering framework for WeatherAI",
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "test": "playwright test",
+    "test:smoke": "playwright test --grep @smoke",
+    "test:functional": "playwright test --grep @functional",
+    "test:contract": "playwright test --grep @contract",
+    "test:negative": "playwright test --grep @negative",
+    "test:data-quality": "playwright test --grep @data-quality",
+    "test:consistency": "playwright test tests/consistency",
+    "test:accuracy": "playwright test --grep @accuracy",
+    "test:monitor": "playwright test --grep @monitoring",
+    "test:report": "playwright show-report",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "tsc --noEmit",
+    "perf:smoke": "k6 run performance/smoke.ts",
+    "perf:load": "k6 run performance/load.ts",
+    "perf:stress": "k6 run performance/stress.ts",
+    "perf:spike": "k6 run performance/spike.ts"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.33.0",
+    "@playwright/test": "^1.54.2",
+    "@types/node": "^22.17.2",
+    "ajv": "^8.17.1",
+    "dotenv": "^17.2.1",
+    "eslint": "^9.33.0",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^16.3.0",
+    "prettier": "^3.6.2",
+    "typescript": "^5.9.2",
+    "typescript-eslint": "^8.39.1"
+  }
+}
+
