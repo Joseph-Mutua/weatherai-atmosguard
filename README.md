@@ -1,14 +1,41 @@
 # weatherai-atmosguard
 
+## Menu
+
+- [weatherai-atmosguard](#weatherai-atmosguard)
+  - [Menu](#menu)
+  - [1. Overview](#1-overview)
+  - [2. Objectives](#2-objectives)
+  - [3. Architecture](#3-architecture)
+  - [4. Technology stack](#4-technology-stack)
+  - [5. APIs covered](#5-apis-covered)
+  - [6. Test strategy](#6-test-strategy)
+  - [7. Project structure](#7-project-structure)
+  - [8. Prerequisites](#8-prerequisites)
+  - [9. Installation](#9-installation)
+  - [10. Environment configuration](#10-environment-configuration)
+  - [11. Run all tests](#11-run-all-tests)
+  - [12. Run individual suites](#12-run-individual-suites)
+  - [13. Performance testing](#13-performance-testing)
+  - [14. Reports](#14-reports)
+  - [15. CI/CD](#15-cicd)
+  - [16. GitHub Pages](#16-github-pages)
+  - [17. API quota considerations](#17-api-quota-considerations)
+  - [18. Engineering decisions](#18-engineering-decisions)
+  - [19. Assumptions](#19-assumptions)
+  - [20. Observed behavior and documentation discrepancies](#20-observed-behavior-and-documentation-discrepancies)
+  - [21. Known limitations](#21-known-limitations)
+  - [22. Future improvements](#22-future-improvements)
+
+Supporting documents: [Test strategy](docs/TEST_STRATEGY.md) ·
+[Automated test cases](docs/TEST_CASES.md)
+
 ## 1. Overview
 
 `weatherai-atmosguard` is an API-only TypeScript quality engineering framework for the
 [WeatherAI developer API](https://weather-ai.co/docs). Playwright's `APIRequestContext` drives
 functional and synthetic checks, Ajv enforces tolerant JSON contracts, Open-Meteo provides an
 independent anomaly signal, and k6 owns controlled performance testing.
-
-The suite was built from the documentation and low-volume observations made on 2026-08-19. It
-does not use browser/page automation and never commits API credentials.
 
 ## 2. Objectives
 
@@ -96,7 +123,7 @@ docs/                      strategy and automated case catalog
 ## 8. Prerequisites
 
 - Node.js 20 or newer and npm
-- A WeatherAI API key and enough remaining plan quota
+- A WeatherAI API key
 - k6 1.x for local performance execution
 - GitHub repository secret `WEATHER_AI_API_KEY` for live CI
 
@@ -169,9 +196,8 @@ The automatic profile makes exactly one request:
 npm run perf:smoke
 ```
 
-k6 receives `WEATHER_AI_API_KEY` and `WEATHER_AI_BASE_URL` from its process environment; unlike
-Playwright, k6 does not load `.env` automatically. Load/stress/spike are manual and additionally
-require the explicit guard `ALLOW_HIGH_VOLUME=true`:
+k6 receives `WEATHER_AI_API_KEY` and `WEATHER_AI_BASE_URL` from its process environment.
+Load/stress/spike are manual and additionally require the explicit guard `ALLOW_HIGH_VOLUME=true`:
 
 ```bash
 ALLOW_HIGH_VOLUME=true npm run perf:load
@@ -208,8 +234,7 @@ skips live API steps when `WEATHER_AI_API_KEY` is absent. AI tests remain opt-in
 ## 16. GitHub Pages
 
 On a successful push to `main`, the merged `playwright-report/` is uploaded and deployed through
-GitHub Pages. Configure repository **Settings → Pages → Source** to **GitHub Actions**. The resulting
-URL follows `https://<owner>.github.io/<repository>/` and is exposed by the deployment job.
+GitHub Pages. The resulting URL follows `https://<owner>.github.io/<repository>/` and is exposed by the deployment job.
 
 ## 17. API quota considerations
 
@@ -218,8 +243,7 @@ Routine tests use `ai=false`; AI cases are explicit opt-ins. Daily monitoring ma
 The framework never attempts to exhaust quota to force `429`, and high-volume profiles cannot start
 without a second authorization flag.
 
-The absence of a `429` exhaustion test is intentional: proving it in a shared/public environment
-would consume the remaining monthly quota and could deny service to legitimate users.
+The absence of a `429` exhaustion test is currently intentional to avoid consuming the remaining monthly quota.
 
 ## 18. Engineering decisions
 
@@ -270,7 +294,6 @@ These behaviors are tested as evidence, not presented as desirable API design.
 - No quota-exhaustion/`429` test runs against the shared public API.
 - AI language behavior is not part of safe default execution.
 - Forecast accuracy thresholds are anomaly heuristics, not meteorological acceptance guarantees.
-- CI publication requires repository Pages configuration and a valid repository secret.
 
 ## 22. Future improvements
 
@@ -278,4 +301,3 @@ These behaviors are tested as evidence, not presented as desirable API design.
 - Export timing and quality events to a time-series dashboard with alert routing.
 - Add provider/model-aware accuracy baselines over rolling windows and seasons.
 - Add a controlled mock/stub environment for deterministic `429`, `500`, and `503` verification.
-- Add plan-matrix CI jobs when dedicated Free, Pro, and Scale keys are available.
