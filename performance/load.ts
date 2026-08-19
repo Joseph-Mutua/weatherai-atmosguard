@@ -3,6 +3,7 @@ import { sleep } from 'k6';
 import {
   candidateThresholds,
   checkWeatherResponse,
+  jsonSummary,
   requestWeather,
   requireAuthorizedLoad,
 } from './common.ts';
@@ -18,6 +19,10 @@ export const options = {
 
 export function setup(): void {
   requireAuthorizedLoad();
+}
+
+export function handleSummary(data: unknown): Record<string, string> {
+  return jsonSummary('load', data);
 }
 
 export default function (): void {

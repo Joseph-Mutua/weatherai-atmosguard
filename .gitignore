@@ -6,8 +6,8 @@ playwright-report/
 test-results/
 blob-report/
 quality-report.json
-k6-results/
+k6-results/*
+!k6-results/.gitkeep
 dist/
 *.log
 .DS_Store
-
