@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test';
 import { percentile } from '../../src/utils/response-time.js';
 import { withExponentialBackoff } from '../../src/utils/retry.js';
 
-test.describe('framework utilities', () => {
+test.describe('framework utilities @unit', () => {
   test('calculates nearest-rank percentiles without mutating input', () => {
     const values = [40, 10, 30, 20];
 

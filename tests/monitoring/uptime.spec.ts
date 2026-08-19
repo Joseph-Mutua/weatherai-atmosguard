@@ -15,6 +15,13 @@ test('minimal WeatherAI synthetic check @monitoring', async ({ weatherClient }, 
   await test.step('Validate availability and minimal JSON response', () =>
     expectSuccessfulWeather(result, { days: 1, aiDisabled: true }));
 
+  await test.step('Confirm the synthetic check succeeded without a hidden retry', () => {
+    expect(
+      result.attempts,
+      'The uptime check must surface an initial 500/503 instead of passing after a retry',
+    ).toBe(1);
+  });
+
   await test.step('Validate candidate-defined monitoring latency budget', () => {
     expect(
       result.durationMs,

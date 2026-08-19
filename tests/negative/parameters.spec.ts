@@ -1,6 +1,7 @@
 import { expect, test } from '../../src/fixtures/api.fixture.js';
 import type { WeatherClient } from '../../src/clients/weather.client.js';
 import type { WeatherQuery } from '../../src/models/weather.types.js';
+import { validateSafeErrorBody } from '../../src/validators/error.validator.js';
 
 const oneDay = { days: 1, ai: false } as const;
 
@@ -12,7 +13,8 @@ async function expectStatusAndError(
   const result = await weatherClient.getWeather(query);
   expect(result.response.status()).toBe(status);
   const body: unknown = await result.response.json();
-  expect(body).toEqual(expect.objectContaining({ error: expect.any(String) }));
+  const error = validateSafeErrorBody(body);
+  expect(error.error.trim().length).toBeGreaterThan(0);
 }
 
 test.describe('Coordinate boundaries @negative', () => {

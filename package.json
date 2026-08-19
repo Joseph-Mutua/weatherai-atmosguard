@@ -9,6 +9,7 @@
   },
   "scripts": {
     "test": "playwright test",
+    "test:unit": "playwright test --grep @unit",
     "test:smoke": "playwright test --grep @smoke",
     "test:functional": "playwright test --grep @functional",
     "test:contract": "playwright test --grep @contract",
