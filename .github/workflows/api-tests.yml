@@ -3,10 +3,14 @@ name: WeatherAI API quality pipeline
 on:
   push:
     branches: [main]
-
   pull_request:
-
   workflow_dispatch:
+    inputs:
+      run_ai_tests:
+        description: Run the opt-in AI summary checks (consumes AI quota)
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -25,15 +29,13 @@ jobs:
       WEATHER_AI_API_KEY: ${{ secrets.WEATHER_AI_API_KEY }}
       WEATHER_AI_BASE_URL: ${{ vars.WEATHER_AI_BASE_URL || 'https://api.weather-ai.co' }}
       WEATHER_AI_PLAN: ${{ vars.WEATHER_AI_PLAN || 'free' }}
+      RUN_AI_TESTS: ${{ inputs.run_ai_tests && 'true' || 'false' }}
 
     outputs:
       has-key: ${{ steps.secret.outputs.has_key }}
+      pages-ready: ${{ steps.pages-upload.outcome == 'success' }}
 
     steps:
-      # -------------------------------------------------------
-      # Repository setup
-      # -------------------------------------------------------
-
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -45,10 +47,6 @@ jobs:
 
       - name: Install deterministic dependencies
         run: npm ci
-
-      # -------------------------------------------------------
-      # Secret detection
-      # -------------------------------------------------------
 
       - name: Detect live-test secret without printing it
         id: secret
@@ -62,9 +60,8 @@ jobs:
             echo "has_key=false" >> "$GITHUB_OUTPUT"
           fi
 
-      # -------------------------------------------------------
-      # Static quality checks
-      # -------------------------------------------------------
+      - name: Check formatting
+        run: npm run format:check
 
       - name: Lint
         run: npm run lint
@@ -72,22 +69,15 @@ jobs:
       - name: Type-check
         run: npm run typecheck
 
-      # -------------------------------------------------------
-      # Prepare Playwright blob reports
-      #
-      # Important:
-      # We create the directory once and give every test suite
-      # its own blob file. This prevents later Playwright runs
-      # from overwriting earlier reports.
-      # -------------------------------------------------------
+      - name: Prepare evidence directories
+        if: always()
+        run: mkdir -p blob-report k6-results
 
-      - name: Prepare blob report directory
-        if: always() && env.HAS_WEATHER_AI_KEY == 'true'
-        run: mkdir -p blob-report
-
-      # -------------------------------------------------------
-      # Playwright API test suites
-      # -------------------------------------------------------
+      - name: Unit tests
+        if: always()
+        env:
+          PLAYWRIGHT_BLOB_OUTPUT_FILE: blob-report/unit.zip
+        run: npm run test:unit -- --reporter=blob
 
       - name: Smoke tests
         if: always() && env.HAS_WEATHER_AI_KEY == 'true'
@@ -131,70 +121,51 @@ jobs:
           PLAYWRIGHT_BLOB_OUTPUT_FILE: blob-report/accuracy.zip
         run: npm run test:accuracy -- --reporter=blob
 
-      # -------------------------------------------------------
-      # Verify all blob reports exist before merging
-      # -------------------------------------------------------
-
-      - name: Verify Playwright blob reports
-        if: always() && env.HAS_WEATHER_AI_KEY == 'true'
+      - name: Verify exact Playwright blob report set
+        id: blob-verification
+        if: always()
         shell: bash
         run: |
-          echo "Playwright blob reports available for merge:"
-          echo "------------------------------------------------"
-          ls -lah blob-report/
+          expected=(unit.zip)
+          if [[ "$HAS_WEATHER_AI_KEY" == "true" ]]; then
+            expected+=(smoke.zip functional.zip contract.zip negative.zip data-quality.zip consistency.zip accuracy.zip)
+          fi
 
-          echo ""
-          echo "Blob report files:"
-          find blob-report -maxdepth 1 -type f -name "*.zip" -print
+          mapfile -t actual < <(find blob-report -maxdepth 1 -type f -name '*.zip' -printf '%f\n' | sort)
+          if [[ "${#actual[@]}" -ne "${#expected[@]}" ]]; then
+            echo "ERROR: expected ${#expected[@]} blob reports, found ${#actual[@]}."
+            printf 'Found: %s\n' "${actual[@]}"
+            exit 1
+          fi
 
-      # -------------------------------------------------------
-      # Merge all suites into one Playwright report
-      #
-      # playwright.config.ts controls the generated reporters:
-      # - HTML
-      # - JUnit XML
-      # - JSON
-      # -------------------------------------------------------
+          for report in "${expected[@]}"; do
+            if [[ ! -f "blob-report/$report" ]]; then
+              echo "ERROR: missing blob-report/$report"
+              exit 1
+            fi
+          done
+
+          echo "Verified ${#expected[@]} expected Playwright blob reports."
 
       - name: Merge Playwright reports
-        if: always() && env.HAS_WEATHER_AI_KEY == 'true'
-        run: |
-          npx playwright merge-reports \
-            --config=playwright.config.ts \
-            blob-report
-
-      # -------------------------------------------------------
-      # Verify final HTML report
-      # -------------------------------------------------------
+        if: always() && steps.blob-verification.outcome == 'success'
+        continue-on-error: true
+        run: npx playwright merge-reports --config=playwright.config.ts blob-report
 
       - name: Verify merged HTML report
-        if: always() && env.HAS_WEATHER_AI_KEY == 'true'
+        id: html-verification
+        if: always() && steps.blob-verification.outcome == 'success'
         shell: bash
         run: |
-          echo "Generated Playwright report:"
-          echo "--------------------------------"
-
           if [[ ! -f "playwright-report/index.html" ]]; then
             echo "ERROR: playwright-report/index.html was not generated."
             exit 1
           fi
-
-          ls -lah playwright-report/
-
-          echo ""
-          echo "Merged Playwright HTML report successfully generated."
-
-      # -------------------------------------------------------
-      # Custom project quality summary
-      # -------------------------------------------------------
+          echo "Merged Playwright HTML report is available."
 
       - name: Generate evidence-based quality summary
-        if: always() && env.HAS_WEATHER_AI_KEY == 'true'
+        if: always() && steps.html-verification.outcome == 'success'
         run: npm run report:summary
-
-      # -------------------------------------------------------
-      # k6 performance smoke
-      # -------------------------------------------------------
 
       - name: Setup k6
         if: always() && env.HAS_WEATHER_AI_KEY == 'true'
@@ -204,15 +175,17 @@ jobs:
         if: always() && env.HAS_WEATHER_AI_KEY == 'true'
         run: npm run perf:smoke
 
-      # -------------------------------------------------------
-      # Upload reports as normal GitHub Actions artifacts
-      #
-      # These remain downloadable from:
-      # Actions -> Workflow run -> Artifacts
-      # -------------------------------------------------------
+      - name: Upload k6 performance evidence
+        if: always() && env.HAS_WEATHER_AI_KEY == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: k6-smoke-results
+          path: k6-results/smoke-summary.json
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Upload Playwright HTML report
-        if: always() && env.HAS_WEATHER_AI_KEY == 'true'
+        if: always() && steps.html-verification.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: playwright-html-report
@@ -221,7 +194,7 @@ jobs:
           retention-days: 30
 
       - name: Upload JUnit and quality results
-        if: always() && env.HAS_WEATHER_AI_KEY == 'true'
+        if: always() && steps.html-verification.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: machine-readable-results
@@ -232,42 +205,27 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      # -------------------------------------------------------
-      # Stage merged Playwright HTML report for GitHub Pages
-      #
-      # always() is intentional.
-      # We still want the HTML report available if API tests
-      # contain failures, because failure evidence is useful.
-      # -------------------------------------------------------
-
       - name: Stage report for GitHub Pages
+        id: pages-upload
         if: >
           always() &&
           github.event_name == 'push' &&
           github.ref == 'refs/heads/main' &&
-          env.HAS_WEATHER_AI_KEY == 'true'
+          env.HAS_WEATHER_AI_KEY == 'true' &&
+          steps.html-verification.outcome == 'success'
         uses: actions/upload-pages-artifact@v3
         with:
           path: playwright-report/
 
-  # ---------------------------------------------------------
-  # Publish Playwright HTML report to GitHub Pages
-  #
-  # This job is allowed to run even if API tests failed,
-  # provided the Pages artifact was generated.
-  # ---------------------------------------------------------
-
   deploy-report:
     name: Publish Playwright report
     needs: api-quality
-
     if: >
       always() &&
       github.event_name == 'push' &&
       github.ref == 'refs/heads/main' &&
       needs.api-quality.outputs.has-key == 'true' &&
-      needs.api-quality.result != 'cancelled'
-
+      needs.api-quality.outputs.pages-ready == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
 

@@ -32,3 +32,11 @@ jobs:
       - uses: grafana/setup-k6-action@v1
       - name: Run exactly one k6 request
         run: npm run perf:smoke
+      - name: Upload k6 performance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: k6-smoke-results
+          path: k6-results/smoke-summary.json
+          if-no-files-found: error
+          retention-days: 30
