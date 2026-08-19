@@ -1,3 +1,4 @@
+import { environment } from '../../config/environments.js';
 import { errorSchema } from '../../src/schemas/error.schema.js';
 import { usageSchema, weatherSchema } from '../../src/schemas/weather.schema.js';
 import { expect, test } from '../../src/fixtures/api.fixture.js';
@@ -40,11 +41,25 @@ test.describe('WeatherAI contracts @contract', () => {
     });
   }
 
-  test('validates the usage response contract', async ({ weatherClient }) => {
-    const result = await weatherClient.getUsage();
+  test('validates usage contract and quota semantics', async ({ weatherClient }) => {
+    const result = await test.step('Request account usage without query parameters', () =>
+      weatherClient.getUsage());
     expect(result.response.status()).toBe(200);
     const body: unknown = await result.response.json();
-    validateContract<UsageResponse>(usageSchema, body);
+
+    const usage = await test.step('Validate the tolerant usage contract', () => {
+      validateContract<UsageResponse>(usageSchema, body);
+      return body;
+    });
+
+    await test.step('Validate plan-aware quota relationships', () => {
+      expect(usage.plan.toLowerCase()).toBe(environment.plan);
+      expect(usage.used).toBeGreaterThanOrEqual(0);
+      expect(usage.remaining).toBeGreaterThanOrEqual(0);
+      if (!usage.unlimited) {
+        expect(usage.remaining).toBeLessThanOrEqual(usage.limit);
+      }
+    });
   });
 
   test('validates the documented unauthorized error contract', async ({ request }) => {

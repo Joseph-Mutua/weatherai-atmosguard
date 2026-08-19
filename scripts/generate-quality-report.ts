@@ -39,6 +39,7 @@ interface ObservedTest {
 const endpointByFile: Readonly<Record<string, readonly string[]>> = {
   'weather.smoke.spec.ts': ['/v1/weather'],
   'weather.spec.ts': ['/v1/weather', '/v1/forecast'],
+  'weather-geo.spec.ts': ['/v1/weather-geo'],
   'current.spec.ts': ['/v1/current'],
   'daily.spec.ts': ['/v1/daily'],
   'hourly.spec.ts': ['/v1/hourly'],
