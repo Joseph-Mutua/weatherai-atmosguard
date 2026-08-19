@@ -1,0 +1,135 @@
+name: WeatherAI API quality pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: weatherai-api-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  api-quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      WEATHER_AI_API_KEY: ${{ secrets.WEATHER_AI_API_KEY }}
+      WEATHER_AI_BASE_URL: ${{ vars.WEATHER_AI_BASE_URL || 'https://api.weather-ai.co' }}
+      WEATHER_AI_PLAN: ${{ vars.WEATHER_AI_PLAN || 'free' }}
+      PLAYWRIGHT_BLOB_OUTPUT_DIR: blob-report
+    outputs:
+      has-key: ${{ steps.secret.outputs.has_key }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install deterministic dependencies
+        run: npm ci
+      - name: Detect live-test secret without printing it
+        id: secret
+        shell: bash
+        run: |
+          if [[ -n "$WEATHER_AI_API_KEY" ]]; then
+            echo "HAS_WEATHER_AI_KEY=true" >> "$GITHUB_ENV"
+            echo "has_key=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "HAS_WEATHER_AI_KEY=false" >> "$GITHUB_ENV"
+            echo "has_key=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Lint
+        run: npm run lint
+      - name: Type-check
+        run: npm run typecheck
+      - name: Smoke tests
+        if: always() && env.HAS_WEATHER_AI_KEY == 'true'
+        env:
+          PLAYWRIGHT_BLOB_OUTPUT_NAME: smoke.zip
+        run: npm run test:smoke -- --reporter=blob
+      - name: Functional tests
+        if: always() && env.HAS_WEATHER_AI_KEY == 'true'
+        env:
+          PLAYWRIGHT_BLOB_OUTPUT_NAME: functional.zip
+        run: npm run test:functional -- --reporter=blob
+      - name: Contract tests
+        if: always() && env.HAS_WEATHER_AI_KEY == 'true'
+        env:
+          PLAYWRIGHT_BLOB_OUTPUT_NAME: contract.zip
+        run: npm run test:contract -- --reporter=blob
+      - name: Negative tests
+        if: always() && env.HAS_WEATHER_AI_KEY == 'true'
+        env:
+          PLAYWRIGHT_BLOB_OUTPUT_NAME: negative.zip
+        run: npm run test:negative -- --reporter=blob
+      - name: Data-quality tests
+        if: always() && env.HAS_WEATHER_AI_KEY == 'true'
+        env:
+          PLAYWRIGHT_BLOB_OUTPUT_NAME: data-quality.zip
+        run: npm run test:data-quality -- --reporter=blob
+      - name: Endpoint-consistency tests
+        if: always() && env.HAS_WEATHER_AI_KEY == 'true'
+        env:
+          PLAYWRIGHT_BLOB_OUTPUT_NAME: consistency.zip
+        run: npm run test:consistency -- --reporter=blob
+      - name: Accuracy comparison
+        if: always() && env.HAS_WEATHER_AI_KEY == 'true'
+        env:
+          PLAYWRIGHT_BLOB_OUTPUT_NAME: accuracy.zip
+        run: npm run test:accuracy -- --reporter=blob
+      - name: Merge Playwright reports
+        if: always() && env.HAS_WEATHER_AI_KEY == 'true'
+        run: npx playwright merge-reports --config=playwright.config.ts blob-report
+      - name: Generate evidence-based quality summary
+        if: always() && env.HAS_WEATHER_AI_KEY == 'true'
+        run: npm run report:summary
+      - uses: grafana/setup-k6-action@v1
+        if: always() && env.HAS_WEATHER_AI_KEY == 'true'
+      - name: Bounded one-request k6 smoke
+        if: always() && env.HAS_WEATHER_AI_KEY == 'true'
+        run: npm run perf:smoke
+      - name: Upload Playwright HTML report
+        if: always() && env.HAS_WEATHER_AI_KEY == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-html-report
+          path: playwright-report/
+          if-no-files-found: error
+          retention-days: 30
+      - name: Upload JUnit and quality results
+        if: always() && env.HAS_WEATHER_AI_KEY == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: machine-readable-results
+          path: |
+            test-results/results.xml
+            test-results/results.json
+            quality-report.json
+          if-no-files-found: error
+          retention-days: 30
+      - name: Stage report for GitHub Pages
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && env.HAS_WEATHER_AI_KEY == 'true'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: playwright-report/
+
+  deploy-report:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.api-quality.outputs.has-key == 'true'
+    needs: api-quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy Playwright report to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
