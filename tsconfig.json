@@ -15,7 +15,12 @@
     "types": ["node", "@playwright/test"],
     "outDir": "dist"
   },
-  "include": ["config/**/*.ts", "src/**/*.ts", "tests/**/*.ts", "scripts/**/*.ts", "playwright.config.ts"],
+  "include": [
+    "config/**/*.ts",
+    "src/**/*.ts",
+    "tests/**/*.ts",
+    "scripts/**/*.ts",
+    "playwright.config.ts"
+  ],
   "exclude": ["node_modules", "dist", "performance"]
 }
-
