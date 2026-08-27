@@ -8,146 +8,179 @@
 - [WeatherAI documentation](https://weather-ai.co/docs)
 - [Known issues](docs/KNOWN_ISSUES.md)
 
-## Table of Contents
+## Table of contents
 
-- [WeatherAI AtmosGuard](#weatherai-atmosguard)
-  - [Table of Contents](#table-of-contents)
-  - [1. Overview](#1-overview)
-  - [2. Objectives](#2-objectives)
-  - [3. Architecture](#3-architecture)
-  - [4. Technology stack](#4-technology-stack)
-  - [5. APIs covered](#5-apis-covered)
-  - [6. Test strategy](#6-test-strategy)
-  - [7. Project structure](#7-project-structure)
-  - [8. Prerequisites](#8-prerequisites)
-  - [9. Installation](#9-installation)
-  - [10. Environment configuration](#10-environment-configuration)
-  - [11. Run all tests](#11-run-all-tests)
-  - [12. Run individual suites](#12-run-individual-suites)
-  - [13. Performance testing](#13-performance-testing)
-  - [14. Reports](#14-reports)
-  - [15. CI/CD](#15-cicd)
-  - [16. GitHub Pages](#16-github-pages)
-  - [17. API quota considerations](#17-api-quota-considerations)
-  - [18. Engineering decisions](#18-engineering-decisions)
-  - [19. Assumptions](#19-assumptions)
-  - [20. Observed behavior and documentation discrepancies](#20-observed-behavior-and-documentation-discrepancies)
-  - [21. Known limitations](#21-known-limitations)
-  - [22. Future improvements](#22-future-improvements)
+- [What this project does](#what-this-project-does)
+- [Project goals](#project-goals)
+- [How it works](#how-it-works)
+- [Tools used](#tools-used)
+- [APIs covered](#apis-covered)
+- [Testing approach](#testing-approach)
+- [Project structure](#project-structure)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Environment setup](#environment-setup)
+- [Running tests](#running-tests)
+- [Performance tests](#performance-tests)
+- [Reports](#reports)
+- [CI/CD](#cicd)
+- [GitHub Pages](#github-pages)
+- [API quota safety](#api-quota-safety)
+- [Why these tools and rules were chosen](#why-these-tools-and-rules-were-chosen)
+- [Assumptions](#assumptions)
+- [Observed API behavior](#observed-api-behavior)
+- [Known limitations](#known-limitations)
+- [Possible future improvements](#possible-future-improvements)
 
-Supporting documents: [Test strategy](docs/TEST_STRATEGY.md) ·
-[Automated test cases](docs/TEST_CASES.md) · [Known issues register](docs/KNOWN_ISSUES.md)
+More details are available in the [test strategy](docs/TEST_STRATEGY.md),
+[automated test cases](docs/TEST_CASES.md), and [known issues register](docs/KNOWN_ISSUES.md).
 
-## 1. Overview
+## What this project does
 
-`weatherai-atmosguard` is an API-only TypeScript quality engineering framework for the
-[WeatherAI developer API](https://weather-ai.co/docs). Playwright's `APIRequestContext` drives
-functional and synthetic checks, Ajv enforces tolerant JSON contracts, Open-Meteo supplies an
-independent anomaly signal, and k6 owns controlled performance testing. No browser automation is
-used.
+`weatherai-atmosguard` is a TypeScript test framework for the
+[WeatherAI developer API](https://weather-ai.co/docs). It tests the API directly; it does not open
+or automate a web browser.
 
-## 2. Objectives
+The project uses:
 
-- Detect functional, authentication, authorization, contract, and boundary regressions.
-- Validate weather-domain invariants and consistency across delegated endpoints.
-- Identify material cross-provider divergence without treating a reference provider as truth.
-- Enforce candidate-defined latency budgets and quota-conscious synthetic monitoring.
-- Produce reviewable human and machine-readable evidence locally and in CI.
-- Keep functional correctness testing separate from controlled load generation.
+- Playwright's `APIRequestContext` for functional API tests and small uptime checks.
+- Ajv to check JSON response structures without rejecting valid extra fields.
+- Open-Meteo as an independent comparison source for detecting large weather-data differences.
+- k6 for controlled performance testing.
 
-## 3. Architecture
+## Project goals
+
+This project is designed to:
+
+- Find functional, authentication, authorization, response-contract, and boundary errors.
+- Check weather-data rules and consistency between related WeatherAI endpoints.
+- Detect large differences between WeatherAI and another provider without assuming that either
+  provider is always correct.
+- Apply project-defined response-time limits and run uptime checks without wasting API quota.
+- Create clear reports for people and machine-readable files for local and CI use.
+- Keep normal correctness tests separate from load, stress, and spike tests.
+
+## How it works
 
 ```mermaid
 flowchart LR
     T[Playwright API tests] --> F[Typed fixture]
     F --> C[WeatherClient]
-    C -->|Bearer token and bounded 500/503 retry| W[WeatherAI REST API]
+    C -->|Bearer token and limited 500/503 retry| W[WeatherAI REST API]
     T --> AJV[Ajv contract validator]
     T --> DQ[Weather data validator]
     T --> AC[Accuracy validator]
     AC --> R[Open-Meteo client]
     R --> O[Open-Meteo API]
-    T --> REP[HTML + JUnit + JSON evidence]
+    T --> REP[HTML + JUnit + JSON results]
     REP --> QR[Quality summary]
     REP --> GP[GitHub Pages]
     K[k6 profiles] -->|ai=false| W
     K --> KR[k6 JSON summaries]
 ```
 
-## 4. Technology stack
+Playwright tests use a typed fixture that creates the `WeatherClient`. The client adds the bearer
+token and uses a small, controlled retry policy. Validators then check the response structure,
+weather data, errors, rate-limit information, and cross-provider differences. Test results are
+saved as HTML, JUnit XML, and JSON.
 
-- Node.js 20+
-- Strict TypeScript with unchecked-index and exact-optional checks
+## Tools used
+
+- Node.js 20 or newer
+- TypeScript with strict checking, including unchecked-index and exact-optional checks
 - Playwright Test and `APIRequestContext`
-- Ajv JSON Schema validation
-- k6 load generation
+- Ajv for JSON Schema validation
+- k6 for performance tests
 - ESLint flat config and Prettier
-- GitHub Actions, GitHub Pages, HTML, JUnit XML, JSON, and workflow artifacts
+- GitHub Actions and GitHub Pages
+- HTML, JUnit XML, JSON, and GitHub Actions artifacts for reporting
 
-## 5. APIs covered
+## APIs covered
 
-Authenticated WeatherAI coverage includes:
+Tests with a WeatherAI API key cover:
 
 - `GET /v1/weather`
 - `GET /v1/forecast`
 - `GET /v1/current`
 - `GET /v1/daily`
 - `GET /v1/hourly`
-- `GET /v1/weather-geo` with deterministic coordinate overrides
-- `GET /v1/usage` contract and quota semantics
-- `GET /v1/forecast14` plan-aware authorization
+- `GET /v1/weather-geo`, using fixed coordinates instead of the test runner's IP location
+- `GET /v1/usage`, including its response structure and quota rules
+- `GET /v1/forecast14`, with checks that depend on the configured plan
 
-The accuracy suite also calls Open-Meteo `GET /v1/forecast` for comparable current temperature,
-relative humidity, and wind-speed reference data. Humidity is compared only when WeatherAI exposes
-the corresponding field.
+The accuracy tests also call Open-Meteo's `GET /v1/forecast` endpoint. They compare current
+temperature, relative humidity, and wind speed. Humidity is compared only when WeatherAI includes
+it in the response.
 
-## 6. Test strategy
+## Testing approach
 
-Tests are data-driven and tagged `@unit`, `@smoke`, `@functional`, `@contract`, `@negative`,
-`@security`, `@data-quality`, `@accuracy`, and `@monitoring`. Stable shape and domain rules are
-strict; dynamic weather values use tolerances or invariants. Additional response properties remain
-allowed because the public API does not promise a closed contract.
+Tests use data sets and the following tags:
 
-The retry policy is deliberately narrow: at most three attempts with 500 ms and 1,000 ms delays,
-only for HTTP `500` and `503`. It never retries `400`, `401`, `403`, assertions, or domain failures.
-The uptime check additionally requires `attempts === 1`, preventing a recovered server error from
-being reported as uninterrupted availability.
+- `@unit`
+- `@smoke`
+- `@functional`
+- `@contract`
+- `@negative`
+- `@security`
+- `@data-quality`
+- `@accuracy`
+- `@monitoring`
 
-CI treats retries as diagnostic evidence rather than a way to hide instability:
-`failOnFlakyTests` is enabled in CI, and the custom quality summary reports flaky tests and retry
-attempts separately. Response and accuracy thresholds are intentionally conservative regression
-guards designed to distinguish severe degradation from normal Internet and shared-runner variance;
-they do not reproduce WeatherAI's plan-specific SLA claims.
+Stable response structures and weather-domain rules are checked strictly. Weather values that
+naturally change are checked with ranges, tolerances, or general rules instead of exact values.
+Extra response properties are allowed because the public API does not define a closed response
+contract.
 
-See [TEST_STRATEGY.md](docs/TEST_STRATEGY.md) and [TEST_CASES.md](docs/TEST_CASES.md).
+Retries are intentionally limited:
 
-## 7. Project structure
+- A request can be attempted at most three times by default.
+- The default delays are 500 ms and then 1,000 ms.
+- Only HTTP `500` and `503` responses are retried.
+- HTTP `400`, `401`, and `403` responses are not retried.
+- Failed assertions and invalid weather data are not retried.
+- The uptime test also requires `attempts === 1`. A request that succeeds only after a retry is not
+  counted as uninterrupted uptime.
+
+In CI, a test that passes on retry is still treated as a failure because `failOnFlakyTests` is
+enabled. The quality report lists flaky tests and retry attempts separately, so instability remains
+visible.
+
+The response-time and accuracy limits are conservative project-defined regression checks. They are
+meant to catch serious problems while allowing for normal internet and shared CI-runner variation.
+They are not WeatherAI's official plan-specific service-level agreements (SLAs).
+
+See [TEST_STRATEGY.md](docs/TEST_STRATEGY.md) and [TEST_CASES.md](docs/TEST_CASES.md) for the full
+strategy and test list.
+
+## Project structure
 
 ```text
-config/                    environment and candidate-defined thresholds
+config/                    Environment settings and project-defined limits
 src/clients/               WeatherAI and Open-Meteo API clients
-src/fixtures/              initialized Playwright WeatherClient fixture
-src/models/                request/response/error types
-src/schemas/               tolerant observed JSON Schemas
-src/test-data/             precise global coordinates
-src/utils/                 retry, timing, and redacting logger utilities
-src/validators/            contract, domain, accuracy, error, and rate-limit rules
-tests/                     API suites grouped by quality concern
-performance/               k6 smoke/load/stress/spike profiles
-k6-results/                ignored generated summaries; tracked directory placeholder
-scripts/                   evidence-based quality-summary generator
-docs/                      strategy, case catalog, and known-issue register
-.github/workflows/         API CI, performance smoke, uptime, and Pages deployment
+src/fixtures/              Playwright fixture that creates WeatherClient
+src/models/                Request, response, and error types
+src/schemas/               Flexible JSON Schemas based on observed responses
+src/test-data/             Exact coordinates for locations around the world
+src/utils/                 Retry, timing, and secret-redacting logging helpers
+src/validators/            Contract, data, accuracy, error, and rate-limit checks
+tests/                     API tests grouped by purpose
+performance/               k6 smoke, load, stress, and spike profiles
+k6-results/                Generated k6 summaries; only .gitkeep is tracked
+scripts/                   Script that creates the quality summary
+docs/                      Test strategy, test list, and known issues
+.github/workflows/         CI, performance smoke, uptime, and Pages workflows
 ```
 
-## 8. Prerequisites
+## Requirements
+
+Before starting, install or obtain:
 
 - Node.js 20 or newer and npm
 - A WeatherAI API key
-- k6 1.x for local performance execution
-- GitHub repository secret `WEATHER_AI_API_KEY` for live CI
+- k6 1.x if you want to run performance tests locally
+- A GitHub repository secret named `WEATHER_AI_API_KEY` if you want CI to call the live API
 
-## 9. Installation
+## Installation
 
 ```bash
 git clone https://github.com/Joseph-Mutua/weatherai-atmosguard.git
@@ -155,11 +188,12 @@ cd weatherai-atmosguard
 npm ci
 ```
 
-`npm ci` is the supported deterministic installation and is also used by CI.
+Use `npm ci` for a repeatable installation that exactly follows `package-lock.json`. CI uses the
+same command.
 
-## 10. Environment configuration
+## Environment setup
 
-Copy `.env.example` to `.env` and replace only the placeholder:
+Copy `.env.example` to `.env`, then replace the example API key with a real key:
 
 ```dotenv
 WEATHER_AI_API_KEY=wai_your_key_here
@@ -167,31 +201,55 @@ WEATHER_AI_BASE_URL=https://api.weather-ai.co
 WEATHER_AI_PLAN=free
 ```
 
-`.env` and every `.env.*` variant except `.env.example` are ignored. The client reads the key only
-from `process.env.WEATHER_AI_API_KEY`; the base URL defaults to `https://api.weather-ai.co`.
-Supported plan values are `free`, `pro`, and `scale`.
+The API key is read only from `WEATHER_AI_API_KEY`. If `WEATHER_AI_BASE_URL` is not set, the client
+uses `https://api.weather-ai.co`. `WEATHER_AI_PLAN` must be `free`, `pro`, or `scale` and defaults to
+`free`.
 
-Optional variables include `SMOKE_RESPONSE_BUDGET_MS`, `FUNCTIONAL_RESPONSE_BUDGET_MS`,
-`MONITORING_RESPONSE_BUDGET_MS`, retry settings, and accuracy tolerances. Defaults live in
-`config/thresholds.ts` and are candidate-defined quality gates—not WeatherAI production SLAs.
+The repository ignores `.env` and all other `.env.*` files except `.env.example`, which helps keep
+secrets out of Git.
 
-## 11. Run all tests
+You can also set these optional variables:
+
+| Variable                            |                      Default | Purpose                                           |
+| ----------------------------------- | ---------------------------: | ------------------------------------------------- |
+| `REFERENCE_WEATHER_BASE_URL`        | `https://api.open-meteo.com` | Open-Meteo base URL                               |
+| `SMOKE_RESPONSE_BUDGET_MS`          |                       `5000` | Smoke-test response-time limit                    |
+| `FUNCTIONAL_RESPONSE_BUDGET_MS`     |                       `8000` | Functional-test response-time limit               |
+| `MONITORING_RESPONSE_BUDGET_MS`     |                       `5000` | Uptime-check response-time limit                  |
+| `TRANSIENT_MAX_ATTEMPTS`            |                          `3` | Maximum attempts for retryable requests           |
+| `TRANSIENT_INITIAL_DELAY_MS`        |                        `500` | First retry delay; later delays use backoff       |
+| `ACCURACY_TEMPERATURE_TOLERANCE_C`  |                          `8` | Allowed temperature difference in degrees Celsius |
+| `ACCURACY_HUMIDITY_TOLERANCE`       |                         `30` | Allowed humidity difference in percentage points  |
+| `ACCURACY_WIND_SPEED_TOLERANCE_KMH` |                         `25` | Allowed wind-speed difference in km/h             |
+
+These values must be positive numbers. They are project-defined quality limits, not WeatherAI
+production SLAs.
+
+## Running tests
+
+### Run the safe default test set
 
 ```bash
 npm test
 ```
 
-The safe default leaves AI validation skipped, sets `ai=false` on routine live calls, and does not
-execute load, stress, or spike profiles. Enable the two dedicated language/AI tests only when quota
-permits:
+By default, tests send `ai=false` during normal live API calls. The two language/AI tests are
+skipped, and k6 load, stress, and spike profiles are not run.
+
+To include the two AI summary tests when quota allows:
 
 ```bash
 RUN_AI_TESTS=true npm run test:functional
 ```
 
-In PowerShell, run `$env:RUN_AI_TESTS='true'` before the npm command.
+PowerShell:
 
-## 12. Run individual suites
+```powershell
+$env:RUN_AI_TESTS='true'
+npm run test:functional
+```
+
+### Run one test group
 
 ```bash
 npm run test:unit
@@ -203,24 +261,39 @@ npm run test:data-quality
 npm run test:consistency
 npm run test:accuracy
 npm run test:monitor
+```
+
+### Run code-quality checks
+
+```bash
 npm run format:check
 npm run lint
 npm run typecheck
 ```
 
-The Playwright tests use the exported fixture as `async ({ weatherClient }) => { ... }` and do not
-duplicate authentication or raw request construction.
+Playwright tests receive the shared client through the exported fixture:
 
-## 13. Performance testing
+```ts
+async ({ weatherClient }) => {
+  // Test code
+};
+```
 
-The automatic profile makes exactly one request:
+This keeps authentication and raw request setup in one place instead of repeating them in every
+test.
+
+## Performance tests
+
+The safe k6 smoke profile sends exactly one request:
 
 ```bash
 npm run perf:smoke
 ```
 
-k6 reads `WEATHER_AI_API_KEY` and `WEATHER_AI_BASE_URL` from its process environment. Load, stress,
-and spike are manual and additionally require `ALLOW_HIGH_VOLUME=true`:
+k6 reads `WEATHER_AI_API_KEY` and `WEATHER_AI_BASE_URL` directly from its process environment.
+
+The load, stress, and spike profiles send more traffic. They run only when
+`ALLOW_HIGH_VOLUME=true` is set:
 
 ```bash
 ALLOW_HIGH_VOLUME=true npm run perf:load
@@ -235,121 +308,179 @@ $env:ALLOW_HIGH_VOLUME='true'
 npm run perf:load
 ```
 
-The guard error is intentional. Set it only after API-owner authorization and quota confirmation.
-Every profile uses `ai=false` and checks echoed coordinates, horizon, units, finite current
-temperature and wind speed, non-negative wind speed, and non-empty daily/hourly forecasts. The
-one-sample smoke uses a candidate-defined `max<5000` latency gate; sustained profiles use
-candidate-defined p95 and p99 gates. Each run writes `k6-results/<profile>-summary.json`.
-Playwright is intentionally not used as a load generator.
+The error shown when this variable is missing is intentional. Set it only after the API owner has
+approved the test and you have confirmed that enough quota is available.
 
-## 14. Reports
+Every k6 profile uses `ai=false` and checks:
 
-Normal Playwright execution produces:
+- The returned coordinates match the request.
+- The forecast length and units match the request.
+- Current temperature and wind speed are finite numbers.
+- Wind speed is not negative.
+- Daily and hourly forecasts are not empty.
+
+The one-request smoke profile uses a project-defined maximum latency of 5,000 ms. The longer
+profiles use project-defined p95 and p99 latency limits, plus failure-rate and check-rate limits.
+Each run creates `k6-results/<profile>-summary.json`.
+
+Playwright is used for functional testing, not as a load generator.
+
+## Reports
+
+A normal Playwright run creates:
 
 - `playwright-report/index.html`
 - `test-results/results.xml`
 - `test-results/results.json`
-- `k6-results/<profile>-summary.json` for an executed k6 profile
 
-Open the HTML report with `npm run test:report`. Generate `quality-report.json` from an actual
-Playwright JSON run with `npm run report:summary`. The summary derives pass/fail/skip counts,
-flaky count, retry attempts, test-duration average and p95, executed endpoints/locations, violation
-counts, and comparison attachment count. It never invents missing measurements. Accuracy
-comparison evidence is attached on both passing runs and tolerance failures.
+Each completed k6 profile creates:
 
-## 15. CI/CD
+- `k6-results/<profile>-summary.json`
 
-`.github/workflows/api-tests.yml` runs deterministic installation, formatting, lint, type checking,
-unit tests, each safe live suite, merged reporting, the quality summary, and the one-request k6
-smoke. With a configured key, CI requires exactly eight blob reports—unit plus seven live suites—
-before merging. Without a key, it still merges and publishes unit-test evidence. HTML,
-machine-readable results, and k6 JSON are downloadable artifacts.
+Open the Playwright HTML report with:
 
-The main quality pipeline is the sole automatic owner of the one-request k6 smoke. The separate
-performance workflow is manual-only, preventing a performance-file push from consuming the same
-request twice. A failed report merge remains a CI failure; evidence steps still use `always()` where
-appropriate.
+```bash
+npm run test:report
+```
 
-Fork pull requests do not receive secrets. They still run static quality gates and unit tests while
-safely skipping live API calls. AI checks remain opt-in through the `run_ai_tests` manual-dispatch
-checkbox.
+Create `quality-report.json` from a real Playwright JSON result with:
 
-The uptime workflow runs once daily and also validates pushes that change its workflow or monitoring
-test. This gives the uptime badge an initial result without spending quota on every repository push.
+```bash
+npm run report:summary
+```
 
-## 16. GitHub Pages
+The quality summary reads the actual test evidence and reports:
 
-On a push to `main`, any successfully generated merged `playwright-report/` is deployed—even when
-API assertions failed—so Pages preserves failure evidence. Deployment is skipped only when the
-report cannot be generated or the live-test secret is unavailable.
+- Passed, failed, skipped, and flaky test counts
+- Retry attempts
+- Average and p95 test duration
+- Endpoints and locations that were tested
+- Contract and data-quality violation counts
+- Number of attached cross-provider comparisons
 
-Live report: https://joseph-mutua.github.io/weatherai-atmosguard/
+It does not create or guess measurements that are missing. Accuracy comparison evidence is
+attached when tests pass and when a tolerance check fails.
 
-## 17. API quota considerations
+## CI/CD
 
-The Free plan documents 1,000 total and 200 AI requests per rolling 30-day subscription period.
-Routine tests use `ai=false`; AI cases are explicit opt-ins. Daily monitoring makes one request.
-The framework never attempts to exhaust quota to force `429`, and high-volume profiles cannot start
-without a second authorization flag.
+`.github/workflows/api-tests.yml` runs:
 
-The absence of a `429` exhaustion test is intentional to avoid consuming the remaining shared
-monthly quota.
+- `npm ci`
+- Formatting, lint, and type checks
+- Unit tests
+- Every safe live API test group when a WeatherAI key is available
+- Playwright report merging and the quality summary
+- The one-request k6 smoke profile when a key is available
 
-## 18. Engineering decisions
+When a key is available, CI expects exactly eight Playwright blob reports: one unit-test report and
+seven live-suite reports. If there is no key, it still merges and publishes the unit-test evidence.
+The HTML report, machine-readable results, and k6 JSON summary are stored as downloadable GitHub
+Actions artifacts.
 
-- **Playwright:** API contexts, typed fixtures, parameterization, steps, attachments, and first-class
-  HTML/JUnit reporting suit functional API evidence.
-- **k6:** VU scheduling and latency/failure-rate thresholds avoid misusing a functional runner for
-  load.
-- **Ajv:** explicit, tolerant JSON Schema checks provide useful multi-error diagnostics.
-- **`ai=false`:** routine checks do not spend the finite Gemini request allowance.
-- **Tolerance-based reference checks:** providers use different models and update cycles; exact
-  equality would be scientifically and operationally unsound.
-- **No automatic destructive load:** public quota and service availability outweigh demonstration
-  volume.
-- **Environment-only secrets:** credentials stay in local environment files and GitHub Secrets;
-  redacting logs provide a second defensive layer.
+The main quality workflow is the only automatic workflow that runs the one-request k6 smoke test.
+The separate performance workflow can be started only by hand. This prevents a change to a
+performance file from spending the same request twice.
 
-## 19. Assumptions
+A report-merge failure still fails CI. Evidence-building steps use `always()` where needed so useful
+results can still be collected after an earlier test failure.
 
-- `WEATHER_AI_PLAN` accurately describes the key under test.
-- Metric WeatherAI wind speed and explicitly requested Open-Meteo wind speed are both km/h.
-- Timestamp strings without offsets represent the requested location's local time; Open-Meteo uses
-  `timezone=auto` for alignment.
-- Public weather values can change between sequential calls, so comparisons use stable fields and
-  tolerances.
+GitHub does not give repository secrets to pull requests from forks. Those pull requests still run
+formatting, lint, type checking, and unit tests, but safely skip live API calls.
 
-## 20. Observed behavior and documentation discrepancies
+AI tests remain optional. They can be enabled with the `run_ai_tests` checkbox when the quality
+workflow is started manually.
 
-Low-volume requests on 2026-08-19 observed:
+The uptime workflow runs once per day. It also runs when a push changes the uptime workflow or its
+monitoring test. This creates an initial result for the uptime badge without spending quota on every
+push.
 
-- Successful responses omitted all documented `X-RateLimit-*` headers. Tests validate a complete,
-  valid set when any header is exposed but do not fail when the whole set is absent.
-- `/v1/current`, `/v1/daily`, and `/v1/hourly` returned the same composite shape as `/v1/weather`,
-  consistent with the documented shared handler.
-- Coordinates outside geographic bounds returned `502` with a generic upstream error, not `400`.
-- Empty coordinate strings were coerced to zero and returned `200`.
-- `days=0`, negative, oversized, and text values normalized to `7`, `1`, `7`, and `7`.
-- A seven-day response contained seven daily rows but only 48 hourly rows. Checks require chronology
-  and inclusion within the daily horizon; they do not invent a `24 × days` contract.
+## GitHub Pages
 
-The maintained status, risk, and automated evidence is in
-[docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md). These observations are evidence, not endorsements of
-the behavior.
+After a push to `main`, a successfully created merged `playwright-report/` is deployed to GitHub
+Pages even if some API assertions failed. This keeps failure evidence available for review.
 
-## 21. Known limitations
+Deployment is skipped only when the report cannot be created or the live-test secret is not
+available.
 
-- WeatherAI did not expose humidity in the sampled response, so cross-provider humidity comparison
-  is conditional.
-- No quota-exhaustion/`429` test runs against the shared public API.
-- AI language behavior is outside safe default execution.
-- Forecast accuracy thresholds are anomaly heuristics, not meteorological acceptance guarantees.
-- External provider availability can affect accuracy comparison results.
+Live report: <https://joseph-mutua.github.io/weatherai-atmosguard/>
 
-## 22. Future improvements
+## API quota safety
 
-- Run contract snapshots against a dedicated non-production tenant with versioned fixtures.
-- Export timing and quality events to a time-series dashboard with alert routing.
-- Add provider/model-aware accuracy baselines over rolling windows and seasons.
-- Add a controlled mock environment for deterministic `429`, `500`, and `503` verification.
-- Add an authorized multi-plan CI matrix for Free, Pro, and Scale behavior.
+The documented Free plan includes 1,000 total requests and 200 AI requests per rolling 30-day
+subscription period.
+
+To protect that quota:
+
+- Normal tests use `ai=false`.
+- AI tests must be enabled explicitly.
+- Daily monitoring sends one request.
+- The project does not exhaust the quota to force an HTTP `429` response.
+- High-volume profiles cannot start without the extra `ALLOW_HIGH_VOLUME=true` flag.
+
+The missing `429` quota-exhaustion test is a deliberate safety choice. Running it against the
+shared public API could use all remaining monthly quota.
+
+## Why these tools and rules were chosen
+
+- **Playwright:** It provides API request contexts, typed fixtures, data-driven tests, steps,
+  attachments, and built-in HTML and JUnit reporting.
+- **k6:** It provides virtual-user scheduling and latency/failure-rate limits designed for load
+  testing.
+- **Ajv:** It checks clear JSON Schemas and reports multiple contract errors while still allowing
+  extra fields.
+- **`ai=false`:** Normal checks do not spend the limited Gemini/AI request allowance.
+- **Tolerance-based provider comparisons:** Weather providers use different models and update
+  schedules, so exact matching would not be scientifically or operationally reliable.
+- **No automatic high-volume load:** Protecting public quota and service availability is more
+  important than automatically generating demonstration traffic.
+- **Environment-only secrets:** API keys stay in local environment files and GitHub Secrets. Logs
+  also redact sensitive values as an extra safety layer.
+
+## Assumptions
+
+- `WEATHER_AI_PLAN` correctly describes the plan connected to the API key being tested.
+- WeatherAI metric wind speed and the explicitly requested Open-Meteo wind speed are both in km/h.
+- A timestamp without a timezone offset represents local time for the requested location.
+  Open-Meteo uses `timezone=auto` to align the comparison.
+- Public weather data can change between two requests, so endpoint comparisons use stable fields
+  and reasonable tolerances.
+
+## Observed API behavior
+
+Low-volume requests made on 2026-08-19 showed the following behavior:
+
+- Successful responses did not include any documented `X-RateLimit-*` headers. Tests require a
+  complete and valid header set if any of these headers appears, but do not fail when all of them
+  are missing.
+- `/v1/current`, `/v1/daily`, and `/v1/hourly` returned the same combined response structure as
+  `/v1/weather`. This matches the documented use of a shared handler.
+- Coordinates outside normal geographic limits returned `502` with a general upstream error
+  instead of `400`.
+- Empty coordinate strings were changed to zero and returned `200`.
+- Values of `days=0`, a negative number, an oversized number, and text were changed to `7`, `1`,
+  `7`, and `7` respectively.
+- A seven-day response contained seven daily records but only 48 hourly records. Tests check that
+  timestamps are ordered and fall inside the daily forecast period; they do not assume there must
+  be `24 x days` hourly records.
+
+These findings describe evidence, not behavior that this project recommends. Current status, risk,
+and automated checks are recorded in [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md).
+
+## Known limitations
+
+- WeatherAI did not return humidity in the sampled response, so humidity is compared with
+  Open-Meteo only when WeatherAI provides it.
+- The shared public API is not used for a quota-exhaustion or `429` test.
+- AI language behavior is not part of the safe default test run.
+- Forecast accuracy limits are warning signals for unusual differences, not guarantees of
+  meteorological accuracy.
+- If Open-Meteo is unavailable, accuracy comparison tests can be affected.
+
+## Possible future improvements
+
+- Test contract snapshots in a separate non-production account using versioned fixtures.
+- Send timing and quality events to a time-series dashboard with alerts.
+- Build provider- and model-specific accuracy baselines that cover rolling time windows and
+  seasons.
+- Add a controlled mock environment for repeatable `429`, `500`, and `503` tests.
+- Add an approved CI matrix that tests Free, Pro, and Scale plans.
